@@ -1,0 +1,80 @@
+name: build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      # 质检和关键点引擎：model-qc-worker 在公司 GitLab，需配置 secret MODEL_QC_GIT_URL（带只读令牌的克隆地址）
+      - name: Checkout model-qc-worker
+        shell: bash
+        env:
+          MODEL_QC_GIT_URL: ${{ secrets.MODEL_QC_GIT_URL }}
+        run: git clone --depth 1 "$MODEL_QC_GIT_URL" ../model-qc-worker
+
+      - uses: astral-sh/setup-uv@v6
+
+      # 构建 qc-engine 和 handpose-engine；两个模型按 SHA-256 校验后下载
+      - name: Build engines
+        run: pnpm build-qc-engine
+
+      - name: Generate icons
+        run: pnpm tauri icon app-icon.svg
+
+      - name: Test
+        run: cargo test --manifest-path src-tauri/Cargo.toml --target ${{ matrix.target }}
+
+      # 打标签（v*）时发布到 GitHub Release 草稿；手动运行时只上传构建产物
+      - uses: tauri-apps/tauri-action@action-v1
+        id: tauri
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target ${{ matrix.target }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: QCWorker ${{ github.ref_name }}
+          releaseDraft: true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: QCWorker-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
+            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe

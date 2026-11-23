@@ -1,0 +1,29 @@
+[package]
+name = "qc-worker"
+version = "1.1.0"
+description = "视频质检与手部关键点"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "qc_worker_lib"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["process", "io-util", "time", "sync", "macros", "fs"] }
+
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
